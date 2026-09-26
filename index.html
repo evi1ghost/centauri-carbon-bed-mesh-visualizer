@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Centauri Carbon Bed Mesh Visualizer</title>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="./mesh-parser.js"></script>
     <style>
         * {
             margin: 0;
@@ -68,19 +69,11 @@
             margin-bottom: 8px;
         }
 
-        .gcode-link {
-            color: #4da6ff;
-            text-decoration: none;
-            font-weight: bold;
-            padding: 2px 6px;
-            background: rgba(77, 166, 255, 0.1);
-            border-radius: 3px;
-            transition: background 0.3s;
-        }
-
-        .gcode-link:hover {
-            background: rgba(77, 166, 255, 0.2);
-            text-decoration: underline;
+        .privacy-note {
+            margin-top: 12px;
+            color: #aaa;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
         .file-input-wrapper {
@@ -242,21 +235,18 @@
 
         <div class="upload-section">
             <div class="instructions">
-                <h3>Instructions:</h3>
+                <h3>Load a saved bed mesh:</h3>
                 <ol>
-                    <li>Plug a USB drive into your PC</li>
-                    <li>Copy <a href="#" class="gcode-link" id="gcodeDownload">M8803.gcode</a> to your USB drive</li>
-                    <li>Eject the USB drive from your PC</li>
-                    <li>Plug the same USB drive into your Centauri Carbon</li>
-                    <li>Go to the files menu and print M8803.gcode</li>
-                    <li>Unplug the USB drive after clicking finish</li>
-                    <li>Plug the same USB drive back into your computer</li>
-                    <li>Upload printer.cfg from the USB drive to the website</li>
+                    <li>Run Automatic Leveling on the printer.</li>
+                    <li>Export the printer diagnostic log to a USB drive.</li>
+                    <li>Open the exported log folder and locate <strong>opt/usr/cfg/autosave.cfg</strong>.</li>
+                    <li>Upload or drag <strong>autosave.cfg</strong> onto this page.</li>
                 </ol>
+                <p class="privacy-note">The file is processed locally in your browser and is not uploaded anywhere. Legacy Centauri Carbon <strong>printer.cfg</strong> mesh profiles are still supported.</p>
             </div>
             <div class="file-input-wrapper">
                 <input type="file" id="fileInput" accept=".cfg,.txt">
-                <label for="fileInput" class="file-input-label">Choose printer.cfg file</label>
+                <label for="fileInput" class="file-input-label">Choose autosave.cfg</label>
             </div>
             <div class="file-name" id="fileName"></div>
         </div>
@@ -273,130 +263,90 @@
     </div>
 
     <script>
-        const profiles = {
-            'standard': ['besh_profile_standard_default', 'Side A'],
-            'enhancement': ['besh_profile_enhancement_default', 'Side B'],
-            /*'standard_secondary': ['besh_profile_standard_1', 'Side A (Secondary)'],
-            'enhancement_secondary': ['besh_profile_enhancement_1', 'Side B (Secondary)']*/
-        };
-
-        let parsedProfiles = {};
+        const { parseMeshProfiles } = BedMeshParser;
+        let parsedProfiles = [];
         let currentProfile = null;
-
-        // Create downloadable M8803.gcode file
-        document.getElementById('gcodeDownload').addEventListener('click', function(e) {
-            e.preventDefault();
-            const blob = new Blob(['M8803'], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'M8803.gcode';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        });
 
         function showError(message) {
             const errorContainer = document.getElementById('errorContainer');
-            errorContainer.innerHTML = `<div class="error">${message}</div>`;
+            const error = document.createElement('div');
+            error.className = 'error';
+            error.textContent = message;
+            errorContainer.replaceChildren(error);
         }
 
         function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
+            document.getElementById('errorContainer').replaceChildren();
         }
 
-        function parseProfile(configContent, sectionName) {
-            // Try to find the section with a lookahead to next section or end of file
-            let sectionPattern = new RegExp(`\\[${sectionName}\\]([\\s\\S]*?)(?=\\n\\[|$)`, 'i');
-            let sectionMatch = configContent.match(sectionPattern);
-
-            if (!sectionMatch) {
-                return null;
+        function coordinateRange(minimum, maximum, count) {
+            if (count === 1) {
+                return [minimum];
             }
 
-            const sectionStr = sectionMatch[1];
+            return Array.from(
+                { length: count },
+                (_, index) => minimum + ((maximum - minimum) * index / (count - 1))
+            );
+        }
 
-            // Extract points
-            const meshPointsMatch = sectionStr.match(/points\s*:\s*([-\d.,\s]+)/i);
-            if (!meshPointsMatch) {
-                return null;
-            }
+        function meshStatistics(points, xCoords, yCoords) {
+            let min = { z: Infinity, x: null, y: null };
+            let max = { z: -Infinity, x: null, y: null };
+            let sum = 0;
+            let count = 0;
 
-            const meshPointsStr = meshPointsMatch[1];
-
-            // Helper to extract config values
-            function extractMeshConfig(key, defaultValue) {
-                const match = sectionStr.match(new RegExp(`${key}\\s*:\\s*([\\d.]+)`, 'i'));
-                return match ? parseFloat(match[1]) : defaultValue;
-            }
-
-            const meshConfigs = {
-                min_x: extractMeshConfig('min_x', 20),
-                max_x: extractMeshConfig('max_x', 246),
-                min_y: extractMeshConfig('min_y', 20),
-                max_y: extractMeshConfig('max_y', 246),
-                x_count: parseInt(extractMeshConfig('x_count', 11)),
-                y_count: parseInt(extractMeshConfig('y_count', 11))
-            };
-
-            // Parse points
-            const meshPoints = meshPointsStr.split(',')
-                .map(p => p.trim())
-                .filter(p => p.length > 0)
-                .map(p => parseFloat(p));
-
-            const expectedPoints = meshConfigs.x_count * meshConfigs.y_count;
-            if (meshPoints.length !== expectedPoints) {
-                console.warn(`Expected ${expectedPoints} values in ${sectionName}, found ${meshPoints.length}`);
-                return null;
-            }
-
-            // Reshape into 2D array (x_count rows, y_count columns)
-            const points = [];
-            for (let i = 0; i < meshConfigs.y_count; i++) {
-                points.push(meshPoints.slice(i * meshConfigs.x_count, (i + 1) * meshConfigs.x_count));
-            }
+            points.forEach((row, rowIndex) => {
+                row.forEach((z, columnIndex) => {
+                    if (z < min.z) {
+                        min = { z, x: xCoords[columnIndex], y: yCoords[rowIndex] };
+                    }
+                    if (z > max.z) {
+                        max = { z, x: xCoords[columnIndex], y: yCoords[rowIndex] };
+                    }
+                    sum += z;
+                    count += 1;
+                });
+            });
 
             return {
-                points: points,
-                configs: meshConfigs
+                min,
+                max,
+                mean: sum / count,
+                range: max.z - min.z
             };
         }
 
-        function createPlot(profileKey, mesh) {
-            const points = mesh.points;
-            const configs = mesh.configs;
+        function createPlot(mesh) {
+            const { points, configs } = mesh;
+            const xCoords = coordinateRange(configs.min_x, configs.max_x, configs.x_count);
+            const yCoords = coordinateRange(configs.min_y, configs.max_y, configs.y_count);
+            const stats = meshStatistics(points, xCoords, yCoords);
 
-            // Create coordinate arrays
-            const xCoords = [];
-            const yCoords = [];
-            for (let i = 0; i < configs.x_count; i++) {
-                xCoords.push(configs.min_x + (configs.max_x - configs.min_x) * i / (configs.x_count - 1));
-            }
-            for (let i = 0; i < configs.y_count; i++) {
-                yCoords.push(configs.min_y + (configs.max_y - configs.min_y) * i / (configs.y_count - 1));
-            }
-
-            // Calculate statistics
-            const flatPoints = points.flat();
-            const minZ = Math.min(...flatPoints);
-            const maxZ = Math.max(...flatPoints);
-            const flatnessDev = maxZ - minZ;
-
-            // Update stats display
             document.getElementById('statsContainer').innerHTML = `
                 <div class="stat-card">
                     <div class="stat-label">Min Height</div>
-                    <div class="stat-value">${minZ.toFixed(5)} mm</div>
+                    <div class="stat-value">${stats.min.z.toFixed(5)} mm</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Max Height</div>
-                    <div class="stat-value">${maxZ.toFixed(5)} mm</div>
+                    <div class="stat-value">${stats.max.z.toFixed(5)} mm</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Flatness Deviation</div>
-                    <div class="stat-value">${flatnessDev.toFixed(5)} mm</div>
+                    <div class="stat-value">${stats.range.toFixed(5)} mm</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Mean Height</div>
+                    <div class="stat-value">${stats.mean.toFixed(5)} mm</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Minimum Position</div>
+                    <div class="stat-value">X${stats.min.x.toFixed(0)} Y${stats.min.y.toFixed(0)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Maximum Position</div>
+                    <div class="stat-value">X${stats.max.x.toFixed(0)} Y${stats.max.y.toFixed(0)}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Grid Size</div>
@@ -404,12 +354,6 @@
                 </div>
             `;
 
-            // Create z=0 reference plane
-            const zeroPlane = Array(2).fill(null).map(() => Array(2).fill(0));
-            const planeX = [configs.min_x, configs.max_x];
-            const planeY = [configs.min_y, configs.max_y];
-
-            // Create 3D surface plot
             const data = [
                 {
                     type: 'surface',
@@ -422,13 +366,14 @@
                         title: 'Height (mm)',
                         titleside: 'right'
                     },
-                    name: 'Bed Mesh'
+                    name: 'Bed Mesh',
+                    hovertemplate: 'X: %{x:.1f} mm<br>Y: %{y:.1f} mm<br>Z: %{z:.5f} mm<extra></extra>'
                 },
                 {
                     type: 'surface',
-                    x: planeX,
-                    y: planeY,
-                    z: zeroPlane,
+                    x: [configs.min_x, configs.max_x],
+                    y: [configs.min_y, configs.max_y],
+                    z: [[0, 0], [0, 0]],
                     colorscale: [[0, 'rgba(100, 255, 100, 0.3)'], [1, 'rgba(100, 255, 100, 0.3)']],
                     showscale: false,
                     name: 'Z=0 Reference',
@@ -438,7 +383,7 @@
 
             const layout = {
                 title: {
-                    text: `Bed Mesh: ${profiles[profileKey][1]}<br><sub>Flatness deviation: ${flatnessDev.toFixed(3)} mm</sub>`,
+                    text: `Bed Mesh: ${mesh.label}<br><sub>${mesh.sectionName} · deviation ${stats.range.toFixed(3)} mm</sub>`,
                     font: { color: '#e0e0e0' }
                 },
                 scene: {
@@ -446,9 +391,7 @@
                     yaxis: { title: 'Y (mm)', color: '#e0e0e0', gridcolor: '#4a4a4a' },
                     zaxis: { title: 'Height (mm)', color: '#e0e0e0', gridcolor: '#4a4a4a' },
                     bgcolor: '#2a2a2a',
-                    camera: {
-                        eye: { x: 1.5, y: 1.5, z: 1.3 }
-                    }
+                    camera: { eye: { x: 1.5, y: 1.5, z: 1.3 } }
                 },
                 paper_bgcolor: '#2a2a2a',
                 plot_bgcolor: '#2a2a2a',
@@ -456,124 +399,96 @@
                 margin: { l: 0, r: 0, t: 80, b: 0 }
             };
 
-            const config = {
-                responsive: true,
-                displayModeBar: true,
-                displaylogo: false
-            };
-
-            // Check if plot already exists and preserve camera position
             const plotContainer = document.getElementById('plotContainer');
-            if (plotContainer.data && plotContainer.layout && plotContainer.layout.scene) {
-                // Preserve the current camera position
+            if (plotContainer.layout?.scene?.camera) {
                 layout.scene.camera = plotContainer.layout.scene.camera;
             }
 
-            Plotly.react('plotContainer', data, layout, config);
-            
-            // Force resize to ensure proper width
-            setTimeout(() => {
-                Plotly.Plots.resize('plotContainer');
-            }, 100);
+            Plotly.react('plotContainer', data, layout, {
+                responsive: true,
+                displayModeBar: true,
+                displaylogo: false
+            });
+
+            setTimeout(() => Plotly.Plots.resize('plotContainer'), 100);
         }
 
         function displayProfile(profileKey) {
             currentProfile = profileKey;
-            const mesh = parsedProfiles[profileKey];
+            const mesh = parsedProfiles.find(profile => profile.key === profileKey);
+            if (!mesh) {
+                return;
+            }
 
-            // Update active button
-            document.querySelectorAll('.profile-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.profile === profileKey);
+            document.querySelectorAll('.profile-btn').forEach(button => {
+                button.classList.toggle('active', button.dataset.profile === profileKey);
             });
 
-            createPlot(profileKey, mesh);
+            createPlot(mesh);
             document.getElementById('plotContainer').classList.add('active');
+        }
+
+        function hideResults() {
+            document.getElementById('infoSection').classList.remove('active');
+            document.getElementById('plotContainer').classList.remove('active');
         }
 
         function processFile(content) {
             clearError();
-            parsedProfiles = {};
+            parsedProfiles = parseMeshProfiles(content);
 
-            // Parse all available profiles
-            for (const [key, [sectionName, displayName]] of Object.entries(profiles)) {
-                const mesh = parseProfile(content, sectionName);
-                if (mesh) {
-                    parsedProfiles[key] = mesh;
-                }
-            }
-
-            if (Object.keys(parsedProfiles).length === 0) {
-                showError('No valid bed mesh profiles found in the config file. Looking for: ' +
-                    Object.values(profiles).map(p => p[0]).join(', '));
-                document.getElementById('infoSection').classList.remove('active');
-                document.getElementById('plotContainer').classList.remove('active');
+            if (parsedProfiles.length === 0) {
+                showError('No valid bed mesh profiles found. Choose an exported autosave.cfg containing a [bed_mesh …] section.');
+                hideResults();
                 return;
             }
 
-            // Create profile selector buttons
             const profileSelector = document.getElementById('profileSelector');
-            profileSelector.innerHTML = '';
+            profileSelector.replaceChildren();
 
-            for (const [key, mesh] of Object.entries(parsedProfiles)) {
-                const btn = document.createElement('button');
-                btn.className = 'profile-btn';
-                btn.textContent = profiles[key][1];
-                btn.dataset.profile = key;
-                btn.onclick = () => displayProfile(key);
-                profileSelector.appendChild(btn);
-            }
+            parsedProfiles.forEach(mesh => {
+                const button = document.createElement('button');
+                button.className = 'profile-btn';
+                button.textContent = mesh.label;
+                button.dataset.profile = mesh.key;
+                button.title = `${mesh.sectionName} from ${mesh.format}`;
+                button.addEventListener('click', () => displayProfile(mesh.key));
+                profileSelector.appendChild(button);
+            });
 
-            // Show the first profile by default
-            const firstProfile = Object.keys(parsedProfiles)[0];
             document.getElementById('infoSection').classList.add('active');
-            displayProfile(firstProfile);
+            displayProfile(parsedProfiles[0].key);
         }
 
-        // File upload handler
-        document.getElementById('fileInput').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+        function readMeshFile(file) {
+            if (!file) {
+                return;
+            }
 
             document.getElementById('fileName').textContent = `Selected: ${file.name}`;
-
             const reader = new FileReader();
-            reader.onload = function(event) {
-                processFile(event.target.result);
-            };
-            reader.onerror = function() {
-                showError('Error reading file. Please try again.');
-            };
+            reader.addEventListener('load', event => processFile(event.target.result));
+            reader.addEventListener('error', () => showError('Error reading file. Please try again.'));
             reader.readAsText(file);
+        }
+
+        document.getElementById('fileInput').addEventListener('change', event => {
+            readMeshFile(event.target.files[0]);
         });
 
-        // Drag and drop support
         const uploadSection = document.querySelector('.upload-section');
-
-        uploadSection.addEventListener('dragover', (e) => {
-            e.preventDefault();
+        uploadSection.addEventListener('dragover', event => {
+            event.preventDefault();
             uploadSection.style.borderColor = '#0066cc';
         });
-
-        uploadSection.addEventListener('dragleave', (e) => {
-            e.preventDefault();
+        uploadSection.addEventListener('dragleave', event => {
+            event.preventDefault();
             uploadSection.style.borderColor = '#4a4a4a';
         });
-
-        uploadSection.addEventListener('drop', (e) => {
-            e.preventDefault();
+        uploadSection.addEventListener('drop', event => {
+            event.preventDefault();
             uploadSection.style.borderColor = '#4a4a4a';
-
-            const file = e.dataTransfer.files[0];
-            if (file) {
-                document.getElementById('fileInput').files = e.dataTransfer.files;
-                document.getElementById('fileName').textContent = `Selected: ${file.name}`;
-
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    processFile(event.target.result);
-                };
-                reader.readAsText(file);
-            }
+            readMeshFile(event.dataTransfer.files[0]);
         });
     </script>
 </body>
