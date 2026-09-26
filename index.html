@@ -199,21 +199,23 @@
             padding: 20px;
             display: none;
         }
-		
-		#plotParent:has(#plotContainer.active) {
-			display: block;
-		}
 
-        #plotContainer {
-            min-height: 600px;
-            visibility: hidden;
-            height: 0;
-            overflow: hidden;
+        #plotParent.active {
+            display: grid;
+            gap: 24px;
         }
 
-        #plotContainer.active {
-            visibility: visible;
-            height: auto;
+        .plot-card {
+            min-width: 0;
+            overflow: hidden;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 10px;
+        }
+
+        #plotContainer,
+        #heatmapContainer {
+            min-height: 600px;
         }
 
         .error {
@@ -236,6 +238,15 @@
 
             .upload-section {
                 padding: 20px;
+            }
+
+            #plotParent {
+                padding: 10px;
+            }
+
+            #plotContainer,
+            #heatmapContainer {
+                min-height: 480px;
             }
         }
     </style>
@@ -274,9 +285,14 @@
             <div class="profile-selector" id="profileSelector"></div>
             <div class="stats" id="statsContainer"></div>
         </div>
-		<div id="plotParent">
-			<div id="plotContainer"></div>
-		</div>
+        <div id="plotParent">
+            <section class="plot-card" aria-label="Interactive 3D bed mesh">
+                <div id="plotContainer"></div>
+            </section>
+            <section class="plot-card" aria-label="Bed mesh heatmap">
+                <div id="heatmapContainer"></div>
+            </section>
+        </div>
     </div>
 
     <script>
@@ -332,6 +348,22 @@
                 mean: sum / count,
                 range: max.z - min.z
             };
+        }
+
+        function heatmapAnnotations(points, xCoords, yCoords, stats) {
+            const maxMagnitude = Math.max(Math.abs(stats.min.z), Math.abs(stats.max.z), Number.EPSILON);
+
+            return points.flatMap((row, rowIndex) => row.map((z, columnIndex) => ({
+                x: xCoords[columnIndex],
+                y: yCoords[rowIndex],
+                text: z.toFixed(2),
+                showarrow: false,
+                font: {
+                    color: Math.abs(z) / maxMagnitude > 0.62 ? '#ffffff' : '#151515',
+                    size: 10
+                },
+                hovertext: `${z.toFixed(5)} mm`
+            })));
         }
 
         function createPlot(mesh) {
@@ -427,7 +459,71 @@
                 displaylogo: false
             });
 
-            setTimeout(() => Plotly.Plots.resize('plotContainer'), 100);
+            const heatmapData = [{
+                type: 'heatmap',
+                x: xCoords,
+                y: yCoords,
+                z: points,
+                zmid: 0,
+                colorscale: 'RdBu',
+                reversescale: false,
+                xgap: 1,
+                ygap: 1,
+                colorbar: {
+                    title: {
+                        text: 'Z offset (mm)',
+                        side: 'right'
+                    },
+                    tickformat: '.2f'
+                },
+                hovertemplate: 'X: %{x:.1f} mm<br>Y: %{y:.1f} mm<br>Z: %{z:.5f} mm<extra></extra>',
+                name: 'Bed Mesh Heatmap'
+            }];
+
+            const heatmapLayout = {
+                title: {
+                    text: `Bed Mesh Heatmap: ${mesh.label}<br><sup>Min ${stats.min.z.toFixed(3)} · Max ${stats.max.z.toFixed(3)} · Peak-to-valley ${stats.range.toFixed(3)} mm</sup>`,
+                    font: { color: '#e0e0e0' }
+                },
+                xaxis: {
+                    title: 'X (mm)',
+                    color: '#e0e0e0',
+                    gridcolor: '#4a4a4a',
+                    constrain: 'domain'
+                },
+                yaxis: {
+                    title: 'Y (mm)',
+                    color: '#e0e0e0',
+                    gridcolor: '#4a4a4a',
+                    scaleanchor: 'x',
+                    scaleratio: 1,
+                    constrain: 'domain'
+                },
+                annotations: heatmapAnnotations(points, xCoords, yCoords, stats),
+                paper_bgcolor: '#252525',
+                plot_bgcolor: '#252525',
+                font: { color: '#e0e0e0' },
+                margin: { l: 80, r: 80, t: 95, b: 70 },
+                height: 760
+            };
+
+            Plotly.react('heatmapContainer', heatmapData, heatmapLayout, {
+                responsive: true,
+                displayModeBar: true,
+                displaylogo: false,
+                toImageButtonOptions: {
+                    format: 'png',
+                    filename: 'bed-mesh-heatmap',
+                    width: 1400,
+                    height: 1200,
+                    scale: 1
+                }
+            });
+
+            setTimeout(() => {
+                Plotly.Plots.resize('plotContainer');
+                Plotly.Plots.resize('heatmapContainer');
+            }, 100);
         }
 
         function displayProfile(profileKey) {
@@ -441,13 +537,13 @@
                 button.classList.toggle('active', button.dataset.profile === profileKey);
             });
 
+            document.getElementById('plotParent').classList.add('active');
             createPlot(mesh);
-            document.getElementById('plotContainer').classList.add('active');
         }
 
         function hideResults() {
             document.getElementById('infoSection').classList.remove('active');
-            document.getElementById('plotContainer').classList.remove('active');
+            document.getElementById('plotParent').classList.remove('active');
         }
 
         function processFile(content) {

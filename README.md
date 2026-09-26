@@ -16,6 +16,8 @@ The archive password is community-reported and may change in future firmware ver
 
 The page detects every valid `[bed_mesh <profile>]` section, including `default` and `ADAPTIVE`. Processing happens entirely in the browser; the configuration file is not uploaded.
 
+Each profile is shown as both an interactive 3D surface and an annotated 2D heatmap. The heatmap uses the physical X/Y coordinates, centers its diverging color scale at zero, and includes minimum, maximum, and peak-to-valley values. It can be exported as a PNG from the Plotly toolbar.
+
 ## Local development
 
 No build step is required. Serve the repository root with any static web server:
