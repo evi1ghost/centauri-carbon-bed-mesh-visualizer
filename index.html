@@ -351,19 +351,24 @@
         }
 
         function heatmapAnnotations(points, xCoords, yCoords, stats) {
-            const maxMagnitude = Math.max(Math.abs(stats.min.z), Math.abs(stats.max.z), Number.EPSILON);
+            const colorRange = Math.max(stats.range, Number.EPSILON);
 
-            return points.flatMap((row, rowIndex) => row.map((z, columnIndex) => ({
-                x: xCoords[columnIndex],
-                y: yCoords[rowIndex],
-                text: z.toFixed(2),
-                showarrow: false,
-                font: {
-                    color: Math.abs(z) / maxMagnitude > 0.62 ? '#ffffff' : '#151515',
-                    size: 10
-                },
-                hovertext: `${z.toFixed(5)} mm`
-            })));
+            return points.flatMap((row, rowIndex) => row.map((z, columnIndex) => {
+                const normalizedValue = (z - stats.min.z) / colorRange;
+                const usesDarkColor = normalizedValue < 0.18 || normalizedValue > 0.82;
+
+                return {
+                    x: xCoords[columnIndex],
+                    y: yCoords[rowIndex],
+                    text: z.toFixed(2),
+                    showarrow: false,
+                    font: {
+                        color: usesDarkColor ? '#ffffff' : '#151515',
+                        size: 10
+                    },
+                    hovertext: `${z.toFixed(5)} mm`
+                };
+            }));
         }
 
         function createPlot(mesh) {
@@ -464,17 +469,19 @@
                 x: xCoords,
                 y: yCoords,
                 z: points,
-                zmid: 0,
+                zauto: false,
+                zmin: stats.range > Number.EPSILON ? stats.min.z : stats.min.z - 0.001,
+                zmax: stats.range > Number.EPSILON ? stats.max.z : stats.max.z + 0.001,
                 colorscale: 'RdBu',
                 reversescale: false,
                 xgap: 1,
                 ygap: 1,
                 colorbar: {
                     title: {
-                        text: 'Z offset (mm)',
+                        text: 'Measured Z (mm)',
                         side: 'right'
                     },
-                    tickformat: '.2f'
+                    tickformat: '.3f'
                 },
                 hovertemplate: 'X: %{x:.1f} mm<br>Y: %{y:.1f} mm<br>Z: %{z:.5f} mm<extra></extra>',
                 name: 'Bed Mesh Heatmap'
@@ -482,7 +489,7 @@
 
             const heatmapLayout = {
                 title: {
-                    text: `Bed Mesh Heatmap: ${mesh.label}<br><sup>Min ${stats.min.z.toFixed(3)} · Max ${stats.max.z.toFixed(3)} · Peak-to-valley ${stats.range.toFixed(3)} mm</sup>`,
+                    text: `Bed Mesh Heatmap: ${mesh.label}<br><sup>Min ${stats.min.z.toFixed(3)} · Max ${stats.max.z.toFixed(3)} · Peak-to-valley ${stats.range.toFixed(3)} mm · color scale: measured range</sup>`,
                     font: { color: '#e0e0e0' }
                 },
                 xaxis: {
