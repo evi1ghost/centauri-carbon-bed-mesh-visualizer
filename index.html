@@ -69,6 +69,17 @@
             margin-bottom: 8px;
         }
 
+        .instructions a {
+            color: #4da6ff;
+        }
+
+        .instructions code {
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: #252525;
+            color: #f2f2f2;
+        }
+
         .privacy-note {
             margin-top: 12px;
             color: #aaa;
@@ -239,9 +250,15 @@
                 <ol>
                     <li>Run Automatic Leveling on the printer.</li>
                     <li>Export the printer diagnostic log to a USB drive.</li>
-                    <li>Open the exported log folder and locate <strong>opt/usr/cfg/autosave.cfg</strong>.</li>
+                    <li>
+                        Extract the ZIP archive using password <code>16881688</code>
+                        (<a href="https://www.lesimprimantes3d.fr/forum/topic/64967-elegoo-centauri-carbon-2-combo-la-d%C3%A9couverte/#comment-663354" target="_blank" rel="noopener noreferrer">community reference</a>;
+                        originally shared in the <a href="https://discord.com/channels/969282195552346202/1370827161107431546/1483838533109289090" target="_blank" rel="noopener noreferrer">ELEGOO Official Discord</a>).
+                    </li>
+                    <li>Open the extracted log folder and locate <strong>opt/usr/cfg/autosave.cfg</strong>.</li>
                     <li>Upload or drag <strong>autosave.cfg</strong> onto this page.</li>
                 </ol>
+                <p class="privacy-note">The archive password is community-reported and may change in future firmware versions.</p>
                 <p class="privacy-note">The file is processed locally in your browser and is not uploaded anywhere. Legacy Centauri Carbon <strong>printer.cfg</strong> mesh profiles are still supported.</p>
             </div>
             <div class="file-input-wrapper">

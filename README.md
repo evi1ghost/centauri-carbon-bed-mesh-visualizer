@@ -8,8 +8,11 @@ This fork adds direct support for the `autosave.cfg` file included in the printe
 
 1. Run Automatic Leveling on the printer.
 2. Export the printer diagnostic log to a USB drive.
-3. Open the exported log folder and locate `opt/usr/cfg/autosave.cfg`.
-4. Open the visualizer and choose or drag `autosave.cfg` onto the page.
+3. Extract the exported ZIP archive using password `16881688` ([community reference](https://www.lesimprimantes3d.fr/forum/topic/64967-elegoo-centauri-carbon-2-combo-la-d%C3%A9couverte/#comment-663354), originally shared in the [ELEGOO Official Discord](https://discord.com/channels/969282195552346202/1370827161107431546/1483838533109289090)).
+4. Open the extracted log folder and locate `opt/usr/cfg/autosave.cfg`.
+5. Open the visualizer and choose or drag `autosave.cfg` onto the page.
+
+The archive password is community-reported and may change in future firmware versions.
 
 The page detects every valid `[bed_mesh <profile>]` section, including `default` and `ADAPTIVE`. Processing happens entirely in the browser; the configuration file is not uploaded.
 
